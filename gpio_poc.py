@@ -28,11 +28,56 @@ STAT_SP7_8 = 19
 STAT_T1_2 = 21
 STAT_T4_8 = 23
 
+# Oscillation control line
+LINE_OSC = 29
+
 g.setmode(g.BOARD)
 
+class timer():
+	def __init__(self, interval, callback):
+		self.interval = interval
+		self.callback = callback
+		self.timer = threading.Timer(self.interval, self.callback)
+
+	def start(self):
+		if self.timer:
+			self.timer.start()
+
+	def reset(self):
+		if self.timer:
+			self.timer.cancel()
+		self.timer = threading.Timer(self.interval, self.callback)
+		self.timer.start()
+
+
+class line_watcher():
+	def __init__(self, pin, name):
+		self.pin = pin
+		self.name = name
+
+		self.active = False
+
+		g.setup(self.pin, g.IN)
+		try:
+			g.add_event_detect(self.pin, g.FALLING, bouncetime=250)
+		except:
+			pass
+		g.add_event_callback(self.pin, self.callback)
+		self.timer = timer(0.4, self.timer_callback)
+
+	def callback(self, channel):
+		if not self.active:
+			self.active = True
+			print("{}:: active".format(self.name))
+		self.timer.reset()
+
+	def timer_callback(self):
+		# Timer is one-shot, no need to cancel it.
+		self.active = False
+		print("{}:: inactive".format(self.name))
 
 class LED_watcher():
-	def __init__(self, hi_pin, common_pin, name, phase=False):
+	def __init__(self, hi_pin, common_pin, name, response_rate=0.01, phase=False):
 		self.was_active = False
 		self.active = False
 
@@ -44,17 +89,11 @@ class LED_watcher():
 		g.setup(self.hi_pin, g.IN)
 		g.setup(self.lo_pin, g.IN)
 		try:
-			g.add_event_detect(self.lo_pin, g.FALLING, bouncetime=3)
+			g.add_event_detect(self.hi_pin, g.RISING, bouncetime=3)
 		except Exception as e:
-			pass 
-		g.add_event_callback(self.lo_pin, self.callback)
-		self.timer = None
-
-	def restart_timer(self, interval):
-		if self.timer:
-			self.timer.cancel()
-		self.timer = threading.Timer(interval, self.timer_cb)
-		self.timer.start()
+			pass
+		g.add_event_callback(self.hi_pin, self.callback)
+		self.timer = timer(response_rate, self.timer_cb)
 
 	def timer_cb(self):
 		if self.active:
@@ -62,14 +101,14 @@ class LED_watcher():
 			print("{}:: OFF".format(self.name))
 
 	def callback(self, channel):
-		l = g.input(self.lo_pin)
-		h = g.input(self.hi_pin)
 		#l = g.input(self.lo_pin)
+		h = g.input(self.hi_pin)
+		l = g.input(self.lo_pin)
 		#if self.phase:
-			#time.sleep(0.001)
-			#h = g.input(self.hi_pin)
+		#	time.sleep(0.01)
+		#	h = g.input(self.hi_pin)
 		if h and not l:
-			self.restart_timer(0.01)
+			self.timer.reset()
 			if self.active == False:
 				self.active = True
 				print("{}:: ON".format(self.name))
@@ -86,8 +125,8 @@ class button_pusher():
 		g.output(self.pin, False)
 		time.sleep(0.1)
 		g.setup(self.pin, g.IN)
-		print("Button {} pushed!".format(self.name))	
-	
+		print("Button {} pushed!".format(self.name))
+
 LED_watcher(STAT_SP1_2, LED_common_2, "Speed 1")
 LED_watcher(STAT_SP1_2, LED_common_1, "Speed 2")
 LED_watcher(STAT_SP3_4, LED_common_2, "Speed 3")
@@ -102,6 +141,8 @@ LED_watcher(STAT_T1_2, LED_common_2, "Timer 1h", True)
 LED_watcher(STAT_T1_2, LED_common_1, "Timer 2h", True)
 LED_watcher(STAT_T4_8, LED_common_2, "Timer 4h", True)
 LED_watcher(STAT_T4_8, LED_common_1, "Timer 8h", True)
+
+line_watcher(LINE_OSC, "Oscillate")
 
 power = button_pusher(BTN_power, "Power")
 speed = button_pusher(BTN_speed, "Speed")
